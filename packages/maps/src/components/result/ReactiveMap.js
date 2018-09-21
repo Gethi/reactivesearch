@@ -1,7 +1,11 @@
 import React, { Component } from 'react';
-import { withGoogleMap, GoogleMap, Marker, InfoWindow } from 'react-google-maps';
+import { withGoogleMap, GoogleMap, Marker as GoogleMarker, InfoWindow } from 'react-google-maps';
 import MarkerClusterer from 'react-google-maps/lib/components/addons/MarkerClusterer';
 import { MarkerWithLabel } from 'react-google-maps/lib/components/addons/MarkerWithLabel';
+
+import { Map as MapLeaflet, Marker as LeafletMarker, Popup, TileLayer, Tooltip } from 'react-leaflet';
+import MarkerClusterGroup from 'react-leaflet-markercluster';
+
 import {
 	addComponent,
 	removeComponent,
@@ -42,6 +46,11 @@ const MAP_CENTER = {
 	lng: 122.4194,
 };
 
+const MAP_ENGINE = {
+	GOOGLE: 'engine/google',
+	LEAFLET: 'engine/leaflet',
+};
+
 const MapComponent = withGoogleMap((props) => {
 	const { children, onMapMounted, ...allProps } = props;
 
@@ -67,11 +76,10 @@ function withDistinctLat(loc, count) {
 	const length = getPrecision(loc.lat);
 	const noiseFactor = (length >= 6) ? 4 : (length - 2);
 	const suffix = (1 / (10 ** noiseFactor)) * count;
-	const location = {
+	return {
 		...loc,
 		lat: parseFloat((loc.lat + suffix).toFixed(length)),
 	};
-	return location;
 }
 
 class ReactiveMap extends Component {
@@ -87,6 +95,8 @@ class ReactiveMap extends Component {
 			{ label: 'Midnight Commander', value: MidnightCommander },
 			{ label: 'Unsaturated Browns', value: UnsaturatedBrowns },
 		];
+
+		this.engine = MAP_ENGINE.LEAFLET;
 
 		const currentMapStyle = this.mapStyles
 			.find(style => style.label === props.defaultMapStyle) || this.mapStyles[0];
@@ -104,9 +114,17 @@ class ReactiveMap extends Component {
 			preserveCenter: false,
 			markerOnTop: null,
 		};
-		this.mapRef = null;
+		this.mapRef = this.engine === MAP_ENGINE.LEAFLET ? React.createRef() : null;
 		this.internalComponent = `${props.componentId}__internal`;
 		props.setQueryListener(props.componentId, props.onQueryChange, null);
+
+
+		window.mapLeafletRef = this.mapLeafletRef;
+		window.setGeoQuery = this.setGeoQuery.bind(this);
+	}
+
+	isLeafLet() {
+		return this.engine === MAP_ENGINE.LEAFLET;
 	}
 
 	componentDidMount() {
@@ -416,7 +434,7 @@ class ReactiveMap extends Component {
 			};
 		}
 		return false;
-	}
+	};
 
 	// getArrPosition = location => [location.lat, location.lon || location.lng];
 	getArrPosition = location => ({ lat: location.lat, lon: location.lon || location.lng });
@@ -434,17 +452,31 @@ class ReactiveMap extends Component {
 			};
 		}
 		return null;
-	}
+	};
 
 	getGeoQuery = (props = this.props) => {
 		this.defaultQuery = props.defaultQuery ? props.defaultQuery() : null;
 
 		if (this.mapRef) {
-			const mapBounds = this.mapRef.getBounds();
-			const north = mapBounds.getNorthEast().lat();
-			const south = mapBounds.getSouthWest().lat();
-			const east = mapBounds.getNorthEast().lng();
-			const west = mapBounds.getSouthWest().lng();
+			const mapObject = this.isLeafLet() ? this.mapRef.current.leafletElement : this.mapRef;
+			const mapBounds = mapObject.getBounds();
+
+			let north = null;
+			let	south = null;
+			let	east = null;
+			let	west = null;
+			if (this.isLeafLet()) {
+				north = mapBounds.getNorthEast().lat;
+				south = mapBounds.getSouthWest().lat;
+				east = mapBounds.getNorthEast().lng;
+				west = mapBounds.getSouthWest().lng;
+			} else {
+				north = mapBounds.getNorthEast().lat();
+				south = mapBounds.getSouthWest().lat();
+				east = mapBounds.getNorthEast().lng();
+				west = mapBounds.getSouthWest().lng();
+			}
+
 			const boundingBoxCoordinates = {
 				top_left: [west, north],
 				bottom_right: [east, south],
@@ -503,7 +535,7 @@ class ReactiveMap extends Component {
 			);
 		}
 		this.skipBoundingBox = false;
-	}
+	};
 
 	loadMore = () => {
 		if (
@@ -562,20 +594,28 @@ class ReactiveMap extends Component {
 	};
 
 	parseLocation(location) {
+		let coordinates = {
+			lat: 0,
+			lng: 0,
+		};
+
 		if (Array.isArray(location)) {
-			return {
+			coordinates = {
 				lat: Number(location[0]),
 				lng: Number(location[1]),
 			};
+		} else {
+			coordinates = {
+				lat: location
+					? Number(location.lat)
+					: this.props.defaultCenter.lat,
+				lng: location
+					? Number(location.lon === undefined ? location.lng : location.lon)
+					: this.props.defaultCenter.lng,
+			};
 		}
-		return {
-			lat: location
-				? Number(location.lat)
-				: this.props.defaultCenter.lat,
-			lng: location
-				? Number(location.lon === undefined ? location.lng : location.lon)
-				: this.props.defaultCenter.lng,
-		};
+
+		return this.engine === MAP_ENGINE.GOOGLE ? coordinates : [coordinates.lat, coordinates.lng];
 	}
 
 	setMapStyle = (currentMapStyle) => {
@@ -593,15 +633,16 @@ class ReactiveMap extends Component {
 			(!!this.mapRef && this.state.preserveCenter)
 			|| (this.props.stream && this.props.streamHits.length && !this.props.streamAutoCenter)
 		) {
-			const currentCenter = this.mapRef.getCenter();
+			const mapObject = this.isLeafLet() ? this.mapRef.current.leafletElement : this.mapRef;
+			const currentCenter = mapObject.getCenter();
 			setTimeout(() => {
 				this.setState({
 					preserveCenter: false,
 				});
 			}, 100);
 			return this.parseLocation({
-				lat: currentCenter.lat(),
-				lng: currentCenter.lng(),
+				lat: this.isLeafLet() ? currentCenter.lat : currentCenter.lat(),
+				lng: this.isLeafLet() ? currentCenter.lng : currentCenter.lng(),
 			});
 		}
 
@@ -619,7 +660,7 @@ class ReactiveMap extends Component {
 	getDefaultCenter = () => {
 		if (this.props.defaultCenter) return this.parseLocation(this.props.defaultCenter);
 		return this.parseLocation(MAP_CENTER);
-	}
+	};
 
 	handleOnIdle = () => {
 		// only make the geo_bounding query if we have hits data
@@ -658,13 +699,13 @@ class ReactiveMap extends Component {
 			});
 		}
 		if (this.props.mapProps.onZoomChanged) this.props.mapProps.onZoomChanged();
-	}
+	};
 
 	toggleSearchAsMove = () => {
 		this.setState({
 			searchAsMove: !this.state.searchAsMove,
 		});
-	}
+	};
 
 	renderSearchAsMove = () => {
 		if (this.props.showSearchAsMove) {
@@ -679,6 +720,7 @@ class ReactiveMap extends Component {
 						padding: '8px 10px',
 						boxShadow: 'rgba(0,0,0,0.3) 0px 1px 4px -1px',
 						borderRadius: 2,
+						zIndex: this.engine === MAP_ENGINE.LEAFLET ? '700' : 'auto',
 					}}
 					className={getClassName(this.props.innerClass, 'checkboxContainer') || null}
 				>
@@ -709,7 +751,7 @@ class ReactiveMap extends Component {
 			openMarkers,
 			preserveCenter: true,
 		});
-	}
+	};
 
 	closeMarkerInfo = (id) => {
 		const { [id]: del, ...activeMarkers } = this.state.openMarkers;
@@ -721,7 +763,7 @@ class ReactiveMap extends Component {
 			openMarkers,
 			preserveCenter: true,
 		});
-	}
+	};
 
 	renderPopover = (item, includeExternalSettings = false) => {
 		let additionalProps = {};
@@ -749,21 +791,21 @@ class ReactiveMap extends Component {
 			);
 		}
 		return null;
-	}
+	};
 
 	increaseMarkerZIndex = (id) => {
 		this.setState({
 			markerOnTop: id,
 			preserveCenter: true,
 		});
-	}
+	};
 
 	removeMarkerZIndex = () => {
 		this.setState({
 			markerOnTop: null,
 			preserveCenter: true,
 		});
-	}
+	};
 
 	addNoise = (hits) => {
 		const hitMap = {};
@@ -781,7 +823,7 @@ class ReactiveMap extends Component {
 			hitMap[key] = count + 1;
 		});
 		return updatedHits;
-	}
+	};
 
 	getMarkers = (resultsToRender) => {
 		let markers = [];
@@ -845,24 +887,36 @@ class ReactiveMap extends Component {
 					markerProps.icon = this.props.defaultPin;
 				}
 
-				return (
-					<Marker
-						key={item._id}
-						onClick={() => this.openMarkerInfo(item._id)}
-						{...markerProps}
-						{...this.props.markerProps}
-					>
-						{
-							this.props.onPopoverClick
-								? this.renderPopover(item)
-								: null
-						}
-					</Marker>
-				);
+				return this.engine === MAP_ENGINE.LEAFLET
+					? (
+						<LeafletMarker
+							key={item._id}
+							position={markerProps.position}
+						>
+							<Popup>
+								<img src="http://localhost:8080/42352ef6f8a9b369270d281923aa9fca.png" alt="descript" />
+							</Popup>
+							<Tooltip permanent>Tooltip for Marker</Tooltip>
+						</LeafletMarker>
+					)
+					:						(
+						<GoogleMarker
+							key={item._id}
+							onClick={() => this.openMarkerInfo(item._id)}
+							{...markerProps}
+							{...this.props.markerProps}
+						>
+							{
+								this.props.onPopoverClick
+									? this.renderPopover(item)
+									: null
+							}
+						</GoogleMarker>
+					);
 			});
 		}
 		return markers;
-	}
+	};
 
 	renderMap = () => {
 		const results = parseHits(this.props.hits) || [];
@@ -885,44 +939,73 @@ class ReactiveMap extends Component {
 
 		return (
 			<div style={style}>
-				<MapComponent
-					containerElement={<div style={style} />}
-					mapElement={<div style={{ height: '100%' }} />}
-					onMapMounted={(ref) => {
-						this.mapRef = ref;
-						if (this.props.innerRef && ref) {
-							const map = Object.values(ref.context)[0];
-							const mapRef = { ...ref, map };
-							this.props.innerRef(mapRef);
-						}
-					}}
-					zoom={this.state.zoom}
-					center={this.getCenter(resultsToRender)}
-					{...this.props.mapProps}
-					onIdle={this.handleOnIdle}
-					onZoomChanged={this.handleZoomChange}
-					onDragEnd={this.handleOnDragEnd}
-					options={{
-						styles: this.state.currentMapStyle.value,
-						...getInnerKey(this.props.mapProps, 'options'),
-					}}
-				>
-					{
-						this.props.showMarkers && this.props.showMarkerClusters
-							? (
-								<MarkerClusterer
-									averageCenter
-									enableRetinaIcons
-									gridSize={60}
-								>
-									{markers}
-								</MarkerClusterer>
-							)
-							: markers
-					}
-					{this.props.showMarkers && this.props.markers}
-					{this.renderSearchAsMove()}
-				</MapComponent>
+				{this.engine === MAP_ENGINE.LEAFLET
+					? (
+						<MapLeaflet
+							onMoveend={this.handleOnDragEnd}
+							center={this.getCenter(resultsToRender)}
+							zoom={this.state.zoom}
+							maxZoom={18}
+							ref={this.mapRef}
+							whenReady={() => {}}
+						>
+							<TileLayer
+								url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+								attribution="&copy; <a href=&quot;http://osm.org/copyright&quot;>OpenStreetMap</a> contributors"
+							/>
+							{
+								this.props.showMarkers && this.props.showMarkerClusters
+									? (
+										<MarkerClusterGroup>
+											{markers}
+										</MarkerClusterGroup>
+									)
+									: markers
+							}
+							{this.renderSearchAsMove()}
+						</MapLeaflet>
+					)
+					: (
+						<MapComponent
+							containerElement={<div style={style} />}
+							mapElement={<div style={{ height: '100%' }} />}
+							onMapMounted={(ref) => {
+								this.mapRef = ref;
+								if (this.props.innerRef && ref) {
+									const map = Object.values(ref.context)[0];
+									const mapRef = { ...ref, map };
+									this.props.innerRef(mapRef);
+								}
+							}}
+							zoom={this.state.zoom}
+							center={this.getCenter(resultsToRender)}
+							{...this.props.mapProps}
+							onIdle={this.handleOnIdle}
+							onZoomChanged={this.handleZoomChange}
+							onDragEnd={this.handleOnDragEnd}
+							options={{
+								styles: this.state.currentMapStyle.value,
+								...getInnerKey(this.props.mapProps, 'options'),
+							}}
+						>
+							{
+								this.props.showMarkers && this.props.showMarkerClusters
+									? (
+										<MarkerClusterer
+											averageCenter
+											enableRetinaIcons
+											gridSize={60}
+										>
+											{markers}
+										</MarkerClusterer>
+									)
+									: markers
+							}
+							{this.props.showMarkers && this.props.markers}
+							{this.renderSearchAsMove()}
+						</MapComponent>
+					)
+				}
 				{
 					this.props.showMapStyles
 						? (

@@ -34,11 +34,12 @@ const Main = () => (
 					react={{
 						and: 'places',
 					}}
-					onData={result => ({
+					/* onData={result => ({
 						label: result.mag,
-					})}
+					})} */
 					onPopoverClick={() => <div>wasssssssaaaa</div>}
 					autoClosePopover
+					showSearchAsMove
 				/>
 			</div>
 		</div>
