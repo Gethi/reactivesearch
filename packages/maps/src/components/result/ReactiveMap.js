@@ -3,8 +3,7 @@ import { withGoogleMap, GoogleMap, Marker as GoogleMarker, InfoWindow } from 're
 import MarkerClusterer from 'react-google-maps/lib/components/addons/MarkerClusterer';
 import { MarkerWithLabel } from 'react-google-maps/lib/components/addons/MarkerWithLabel';
 
-import { Map as MapLeaflet, Marker as LeafletMarker, Popup, TileLayer, Tooltip } from 'react-leaflet';
-import MarkerClusterGroup from 'react-leaflet-markercluster';
+import ReactMapboxGl, { Layer, Feature, Marker as MapBoxMarker, Cluster } from "react-mapbox-gl";
 
 import {
 	addComponent,
@@ -48,7 +47,7 @@ const MAP_CENTER = {
 
 const MAP_ENGINE = {
 	GOOGLE: 'engine/google',
-	LEAFLET: 'engine/leaflet',
+	MAPBOX: 'engine/mapBox',
 };
 
 const MapComponent = withGoogleMap((props) => {
@@ -62,6 +61,10 @@ const MapComponent = withGoogleMap((props) => {
 			{children}
 		</GoogleMap>
 	);
+});
+
+const MapBox = ReactMapboxGl({
+    accessToken: "pk.eyJ1IjoiZ2V0aGkiLCJhIjoiY2pta2M3dmJvMG96cjNxcGs0aTJ2bzZjZCJ9.czxZJeIOX6n2ZzWdGNK_NQ"
 });
 
 function getPrecision(a) {
@@ -96,7 +99,7 @@ class ReactiveMap extends Component {
 			{ label: 'Unsaturated Browns', value: UnsaturatedBrowns },
 		];
 
-		this.engine = MAP_ENGINE.LEAFLET;
+		this.engine = MAP_ENGINE.MAPBOX;
 
 		const currentMapStyle = this.mapStyles
 			.find(style => style.label === props.defaultMapStyle) || this.mapStyles[0];
@@ -114,7 +117,7 @@ class ReactiveMap extends Component {
 			preserveCenter: false,
 			markerOnTop: null,
 		};
-		this.mapRef = this.engine === MAP_ENGINE.LEAFLET ? React.createRef() : null;
+		this.mapRef = this.isMapBoxEngine() ? React.createRef() : null;
 		this.internalComponent = `${props.componentId}__internal`;
 		props.setQueryListener(props.componentId, props.onQueryChange, null);
 
@@ -123,8 +126,8 @@ class ReactiveMap extends Component {
 		window.setGeoQuery = this.setGeoQuery.bind(this);
 	}
 
-	isLeafLet() {
-		return this.engine === MAP_ENGINE.LEAFLET;
+	isMapBoxEngine() {
+		return this.engine === MAP_ENGINE.MAPBOX;
 	}
 
 	componentDidMount() {
@@ -458,18 +461,18 @@ class ReactiveMap extends Component {
 		this.defaultQuery = props.defaultQuery ? props.defaultQuery() : null;
 
 		if (this.mapRef) {
-			const mapObject = this.isLeafLet() ? this.mapRef.current.leafletElement : this.mapRef;
+			const mapObject = this.isMapBoxEngine() ? this.mapRef.current.state.map : this.mapRef;
 			const mapBounds = mapObject.getBounds();
 
 			let north = null;
 			let	south = null;
 			let	east = null;
 			let	west = null;
-			if (this.isLeafLet()) {
-				north = mapBounds.getNorthEast().lat;
-				south = mapBounds.getSouthWest().lat;
-				east = mapBounds.getNorthEast().lng;
-				west = mapBounds.getSouthWest().lng;
+			if (this.isMapBoxEngine()) {
+				north = mapBounds._ne.lat;
+				south = mapBounds._sw.lat;
+				east = mapBounds._ne.lng;
+				west = mapBounds._sw.lng;
 			} else {
 				north = mapBounds.getNorthEast().lat();
 				south = mapBounds.getSouthWest().lat();
@@ -615,7 +618,7 @@ class ReactiveMap extends Component {
 			};
 		}
 
-		return this.engine === MAP_ENGINE.GOOGLE ? coordinates : [coordinates.lat, coordinates.lng];
+		return coordinates;
 	}
 
 	setMapStyle = (currentMapStyle) => {
@@ -633,7 +636,7 @@ class ReactiveMap extends Component {
 			(!!this.mapRef && this.state.preserveCenter)
 			|| (this.props.stream && this.props.streamHits.length && !this.props.streamAutoCenter)
 		) {
-			const mapObject = this.isLeafLet() ? this.mapRef.current.leafletElement : this.mapRef;
+			const mapObject = this.isMapBoxEngine() ? this.mapRef.current.state.map : this.mapRef;
 			const currentCenter = mapObject.getCenter();
 			setTimeout(() => {
 				this.setState({
@@ -641,8 +644,8 @@ class ReactiveMap extends Component {
 				});
 			}, 100);
 			return this.parseLocation({
-				lat: this.isLeafLet() ? currentCenter.lat : currentCenter.lat(),
-				lng: this.isLeafLet() ? currentCenter.lng : currentCenter.lng(),
+				lat: this.isMapBoxEngine() ? currentCenter.lat : currentCenter.lat(),
+				lng: this.isMapBoxEngine() ? currentCenter.lng : currentCenter.lng(),
 			});
 		}
 
@@ -685,7 +688,8 @@ class ReactiveMap extends Component {
 	};
 
 	handleZoomChange = () => {
-		const zoom = this.mapRef.getZoom();
+		const mapObject = this.isMapBoxEngine() ? this.mapRef.current.state.map : this.mapRef;
+		const zoom = mapObject.getZoom();
 		if (this.state.searchAsMove) {
 			this.setState({
 				zoom,
@@ -720,7 +724,7 @@ class ReactiveMap extends Component {
 						padding: '8px 10px',
 						boxShadow: 'rgba(0,0,0,0.3) 0px 1px 4px -1px',
 						borderRadius: 2,
-						zIndex: this.engine === MAP_ENGINE.LEAFLET ? '700' : 'auto',
+						zIndex: this.isMapBoxEngine() ? '700' : 'auto',
 					}}
 					className={getClassName(this.props.innerClass, 'checkboxContainer') || null}
 				>
@@ -887,17 +891,19 @@ class ReactiveMap extends Component {
 					markerProps.icon = this.props.defaultPin;
 				}
 
-				return this.engine === MAP_ENGINE.LEAFLET
+				return this.isMapBoxEngine()
 					? (
-						<LeafletMarker
+						<MapBoxMarker
 							key={item._id}
-							position={markerProps.position}
+							coordinates={[markerProps.position.lng,markerProps.position.lat]}
+							anchor="bottom"
 						>
-							<Popup>
-								<img src="http://localhost:8080/42352ef6f8a9b369270d281923aa9fca.png" alt="descript" />
-							</Popup>
-							<Tooltip permanent>Tooltip for Marker</Tooltip>
-						</LeafletMarker>
+							{
+								this.props.customMarker
+								? this.props.customMarker(item, markerProps)
+								: <img src={`https://gkv.com/wp-content/uploads/leaflet-maps-marker-icons/map_marker-orange.png`} width="24px" />
+							}
+						</MapBoxMarker>
 					)
 					:						(
 						<GoogleMarker
@@ -918,7 +924,25 @@ class ReactiveMap extends Component {
 		return markers;
 	};
 
-	renderMap = () => {
+    clusterMarker = (coordinates, pointCount) => {
+        return (
+	        <MapBoxMarker coordinates={coordinates} key={`${coordinates}`} >
+	        	{
+	        		(this.props.customClusterMarker)
+	 					? this.props.customClusterMarker(coordinates, pointCount)
+						: (
+							<svg width="30px" height="30px" viewBox="0 0 20 20" version="1.1" xmlns="http://www.w3.org/2000/svg">
+								<circle className="circle first-circle" fill="#FF6347" cx="10" cy="10" r="10"></circle>
+								<text x="7" y="14" fill="white">{pointCount}</text>
+							</svg>
+						)
+				}
+	        </MapBoxMarker>
+        );
+    };
+
+
+    renderMap = () => {
 		const results = parseHits(this.props.hits) || [];
 		const streamResults = parseHits(this.props.streamHits) || [];
 		let filteredResults = results.filter(item => !!item[this.props.dataField]);
@@ -939,31 +963,30 @@ class ReactiveMap extends Component {
 
 		return (
 			<div style={style}>
-				{this.engine === MAP_ENGINE.LEAFLET
+				{
+					this.isMapBoxEngine()
 					? (
-						<MapLeaflet
-							onMoveend={this.handleOnDragEnd}
-							center={this.getCenter(resultsToRender)}
-							zoom={this.state.zoom}
-							maxZoom={18}
-							ref={this.mapRef}
-							whenReady={() => {}}
+
+                        <MapBox
+                            style="mapbox://styles/mapbox/streets-v9"
+                            containerStyle={{
+                                height: "100vh",
+                                width: "100vw"
+                            }}
+                            zoom={[this.state.zoom]}
+                            center={this.getCenter(resultsToRender)}
+                            ref={this.mapRef}
 						>
-							<TileLayer
-								url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-								attribution="&copy; <a href=&quot;http://osm.org/copyright&quot;>OpenStreetMap</a> contributors"
-							/>
-							{
-								this.props.showMarkers && this.props.showMarkerClusters
-									? (
-										<MarkerClusterGroup>
-											{markers}
-										</MarkerClusterGroup>
-									)
-									: markers
-							}
-							{this.renderSearchAsMove()}
-						</MapLeaflet>
+					 		{
+				                this.props.showMarkers && this.props.showMarkerClusters
+				                    ? (
+				                        <Cluster ClusterMarkerFactory={this.clusterMarker}>
+				                            {markers}
+				                        </Cluster>
+				                    )
+				                    : markers
+				            }
+                        </MapBox>
 					)
 					: (
 						<MapComponent

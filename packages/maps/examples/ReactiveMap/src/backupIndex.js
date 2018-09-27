@@ -10,13 +10,18 @@ import { ReactiveMap } from '@appbaseio/reactivemaps';
 import './index.css';
 
 const Main = () => (
-	<ReactiveBase url="https://search-pop-staging-zukwe7tuull7zntiuqs3mp3gr4.eu-west-3.es.amazonaws.com" app={['merimee', 'memoire'].join(',')}>
+	<ReactiveBase
+		app="earthquake"
+		credentials="OrXIHcgHn:d539c6e7-ed14-4407-8214-c227b0600d8e"
+		type="places"
+		mapKey="AIzaSyBQdVcKCe0q_vOBDUvJYpzwGpt_d_uTj4Q"
+	>
 		<div className="row">
 			<div className="col">
 				<SingleList
-					title="Locations"
-					componentId="locations"
-					dataField="POP_CONTIENT_GEOLOCALISATION.keyword"
+					title="Places"
+					componentId="places"
+					dataField="place.raw"
 					size={50}
 					showSearch
 				/>
@@ -25,11 +30,10 @@ const Main = () => (
 				<SelectedFilters />
 				<ReactiveMap
 					componentId="map"
-					dataField="POP_COORDONNEES"
+					dataField="location"
 					react={{
-						and: 'locations',
+						and: 'places',
 					}}
-					size={200}
 					/* onData={result => ({
 						label: result.mag,
 					})} */
@@ -41,11 +45,7 @@ const Main = () => (
 							 return (
 								<svg width="30px" height="30px" viewBox="0 0 20 20" version="1.1" xmlns="http://www.w3.org/2000/svg" key="content">
 									<circle className="circle first-circle" fill="#FF6347" cx="10" cy="10" r="10"></circle>
-									{
-										pointCount < 10
-										 ? <text x="7" y="14" fill="white">{pointCount}</text>
-										 : <text x="3" y="14" fill="white">{pointCount}</text>
-									}
+									<text x="7" y="14" fill="black">{pointCount}</text>
 								</svg>
 					        );
 						}
