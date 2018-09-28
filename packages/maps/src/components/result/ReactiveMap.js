@@ -3,7 +3,7 @@ import { withGoogleMap, GoogleMap, Marker as GoogleMarker, InfoWindow } from 're
 import MarkerClusterer from 'react-google-maps/lib/components/addons/MarkerClusterer';
 import { MarkerWithLabel } from 'react-google-maps/lib/components/addons/MarkerWithLabel';
 
-import ReactMapboxGl, { Layer, Feature, Marker as MapBoxMarker, Cluster } from "react-mapbox-gl";
+import ReactMapboxGl, { Layer, Feature, Marker as MapBoxMarker, Cluster, Popup as MapBoxPopup } from "react-mapbox-gl";
 
 import {
 	addComponent,
@@ -41,8 +41,8 @@ const MidnightCommander = require('./addons/styles/MidnightCommander');
 const UnsaturatedBrowns = require('./addons/styles/UnsaturatedBrowns');
 
 const MAP_CENTER = {
-	lat: 37.7749,
-	lng: 122.4194,
+	lat: 46.311221,
+	lng: 4.140835,
 };
 
 const MAP_ENGINE = {
@@ -122,7 +122,7 @@ class ReactiveMap extends Component {
 		props.setQueryListener(props.componentId, props.onQueryChange, null);
 
 
-		window.mapLeafletRef = this.mapLeafletRef;
+		window.mapRef = this.mapRef;
 		window.setGeoQuery = this.setGeoQuery.bind(this);
 	}
 
@@ -702,6 +702,7 @@ class ReactiveMap extends Component {
 				zoom,
 			});
 		}
+
 		if (this.props.mapProps.onZoomChanged) this.props.mapProps.onZoomChanged();
 	};
 
@@ -783,16 +784,25 @@ class ReactiveMap extends Component {
 		}
 
 		if (item._id in this.state.openMarkers) {
-			return (
-				<InfoWindow
-					zIndex={500}
-					key={`${item._id}-InfoWindow`}
-					onCloseClick={() => this.closeMarkerInfo(item._id)}
-					{...additionalProps}
-				>
-					{this.props.onPopoverClick(item)}
-				</InfoWindow>
-			);
+			return this.isMapBoxEngine()
+				? (
+					<MapBoxPopup
+                        key={`${item._id}-Popup`}
+						coordinates={[additionalProps.position.lng,additionalProps.position.lat]}
+					>
+                        {this.props.onPopoverClick(item, this.closeMarkerInfo.bind(this))}
+					</MapBoxPopup>
+				)
+				:(
+					<InfoWindow
+						zIndex={500}
+						key={`${item._id}-InfoWindow`}
+						onCloseClick={() => this.closeMarkerInfo(item._id)}
+						{...additionalProps}
+					>
+						{this.props.onPopoverClick(item)}
+					</InfoWindow>
+				);
 		}
 		return null;
 	};
@@ -828,6 +838,18 @@ class ReactiveMap extends Component {
 		});
 		return updatedHits;
 	};
+
+    getPopup = (resultsToRender) => {
+        let popups = [];
+        if (this.props.onPopoverClick) {
+            popups = resultsToRender.map((item) => {
+                return this.isMapBoxEngine()
+                    ? this.renderPopover(item, true)
+                    : null
+            });
+        }
+        return popups;
+    };
 
 	getMarkers = (resultsToRender) => {
 		let markers = [];
@@ -896,7 +918,8 @@ class ReactiveMap extends Component {
 						<MapBoxMarker
 							key={item._id}
 							coordinates={[markerProps.position.lng,markerProps.position.lat]}
-							anchor="bottom"
+							anchor="center"
+                            onClick={() => this.openMarkerInfo(item._id)}
 						>
 							{
 								this.props.customMarker
@@ -954,6 +977,7 @@ class ReactiveMap extends Component {
 
 		const resultsToRender = this.addNoise([...streamResults, ...filteredResults]);
 		const markers = this.getMarkers(resultsToRender);
+		const popups = this.getPopup(resultsToRender);
 
 		const style = {
 			width: '100%',
@@ -976,6 +1000,8 @@ class ReactiveMap extends Component {
                             zoom={[this.state.zoom]}
                             center={this.getCenter(resultsToRender)}
                             ref={this.mapRef}
+                            onZoomEnd={this.handleZoomChange}
+                            onDragEnd={this.handleOnDragEnd}
 						>
 					 		{
 				                this.props.showMarkers && this.props.showMarkerClusters
@@ -986,6 +1012,7 @@ class ReactiveMap extends Component {
 				                    )
 				                    : markers
 				            }
+							{popups}
                         </MapBox>
 					)
 					: (
@@ -1005,7 +1032,7 @@ class ReactiveMap extends Component {
 							{...this.props.mapProps}
 							onIdle={this.handleOnIdle}
 							onZoomChanged={this.handleZoomChange}
-							onDragEnd={this.handleOnDragEnd}
+                            onDragEnd={this.handleOnDragEnd}
 							options={{
 								styles: this.state.currentMapStyle.value,
 								...getInnerKey(this.props.mapProps, 'options'),

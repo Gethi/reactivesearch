@@ -36,3 +36,8 @@ body {
         max-width: none;
     }
 }
+
+.image_popup {
+    max-width: 242.88px;
+    min-height: 185px;
+}
