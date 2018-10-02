@@ -3,7 +3,9 @@ import { withGoogleMap, GoogleMap, Marker as GoogleMarker, InfoWindow } from 're
 import MarkerClusterer from 'react-google-maps/lib/components/addons/MarkerClusterer';
 import { MarkerWithLabel } from 'react-google-maps/lib/components/addons/MarkerWithLabel';
 
-import ReactMapboxGl, { Layer, Feature, Marker as MapBoxMarker, Cluster, Popup as MapBoxPopup } from "react-mapbox-gl";
+import ReactMapboxGl, { Layer, Feature, Source, Marker as MapBoxMarker, Cluster, Popup as MapBoxPopup } from "react-mapbox-gl";
+
+import _ from 'lodash';
 
 import {
 	addComponent,
@@ -31,6 +33,9 @@ import { connect } from '@appbaseio/reactivesearch/lib/utils';
 import Pagination from '@appbaseio/reactivesearch/lib/components/result/addons/Pagination';
 import { Checkbox } from '@appbaseio/reactivesearch/lib/styles/FormControlList';
 import { MapPin, MapPinArrow, mapPinWrapper } from './addons/styles/MapPin';
+
+import Flex from '@appbaseio/reactivesearch/lib/styles/Flex';
+import { resultStats, sortOptions } from '@appbaseio/reactivesearch/lib/styles/results';
 
 const Standard = require('./addons/styles/Standard');
 const BlueEssence = require('./addons/styles/BlueEssence');
@@ -123,6 +128,10 @@ class ReactiveMap extends Component {
 
 
 		window.mapRef = this.mapRef;
+		this.resultsToRender = [];
+		this.resultsKeyById = [];
+		this.geoJsonFormated = null;
+
 		window.setGeoQuery = this.setGeoQuery.bind(this);
 	}
 
@@ -237,6 +246,7 @@ class ReactiveMap extends Component {
 		}
 
 		if (!isEqual(this.props.hits, nextProps.hits)) {
+			this.itemsToRender(nextProps.hits, nextProps.streamHits, nextProps.dataField);
 			this.setState({
 				openMarkers: {},
 			});
@@ -690,7 +700,7 @@ class ReactiveMap extends Component {
 		if (this.props.mapProps.onDragEnd) this.props.mapProps.onDragEnd();
 	};
 
-	handleOnClick = () => {
+	handleOnClick = (map, evt) => {
 		let reason = 'click';
 		if(Object.keys(this.state.openMarkers)) {
 			this.closeMarkerInfo();
@@ -722,6 +732,19 @@ class ReactiveMap extends Component {
 		this.setState({
 			searchAsMove: !this.state.searchAsMove,
 		});
+	};
+
+	renderResultStats = () => {
+		if (this.props.onResultStats && this.props.total) {
+			return this.props.onResultStats(this.props.total, this.props.time);
+		} else if (this.props.total) {
+			return (
+				<p className={`${resultStats} ${getClassName(this.props.innerClass, 'resultStats')}`}>
+					{this.props.total} results found in {this.props.time}ms
+				</p>
+			);
+		}
+		return null;
 	};
 
 	renderSearchAsMove = () => {
@@ -833,17 +856,17 @@ class ReactiveMap extends Component {
 		});
 	};
 
-	addNoise = (hits) => {
+	addNoise = (hits, dataField) => {
 		const hitMap = {};
 		let updatedHits = [];
 
 		hits.forEach((item) => {
 			const updatedItem = { ...item };
-			const location = this.parseLocation(item[this.props.dataField]);
+			const location = this.parseLocation(item[dataField]);
 			const key = JSON.stringify(location);
 			const count = hitMap[key] || 0;
 
-			updatedItem[this.props.dataField] = count ? withDistinctLat(location, count) : location;
+			updatedItem[dataField] = count ? withDistinctLat(location, count) : location;
 			updatedHits = [...updatedHits, updatedItem];
 
 			hitMap[key] = count + 1;
@@ -851,22 +874,58 @@ class ReactiveMap extends Component {
 		return updatedHits;
 	};
 
-    getPopup = (resultsToRender) => {
+	itemsToRender = (hits, streamHits, dataField) => {
+		const results = parseHits(hits) || [];
+		const streamResults = parseHits(streamHits) || [];
+		let filteredResults = results.filter(item => !!item[dataField]);
+
+		if (streamResults.length) {
+			const ids = streamResults.map(item => item._id);
+			filteredResults = filteredResults.filter(item => !ids.includes(item._id));
+		}
+		
+		this.resultsToRender = this.addNoise([...streamResults, ...filteredResults], dataField);
+
+		this.resultsKeyById = _.keyBy(this.resultsToRender, '_id');
+
+
+		this.geoJsonFormated = {
+			type: "FeatureCollection",
+			crs: { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+			features: []
+		};
+
+		for (var i = 0; i < this.resultsToRender.length; i++) {
+			const item = this.resultsToRender[i];
+			const position = this.getPosition(item);
+			this.geoJsonFormated.features.push({
+			   "type":"Feature",
+			   "properties":{
+			      "id":item._id,
+			   },
+			   "geometry":{
+			      "type":"Point",
+			      "coordinates":[position.lng, position.lat]
+			   }
+			});
+		}
+	};
+
+    getPopup = () => {
         let popups = [];
-        if (this.props.onPopoverClick) {
-            popups = resultsToRender.map((item) => {
-                return this.isMapBoxEngine()
-                    ? this.renderPopover(item, true)
-                    : null
-            });
+        if (this.props.onPopoverClick && this.isMapBoxEngine()) {
+        	const ids = Object.keys(this.state.openMarkers);
+        	for (var i = 0; i < ids.length; i++) {
+        		popups.push(this.renderPopover(this.resultsKeyById[ids[i]], true));
+        	}
         }
         return popups;
     };
 
-	getMarkers = (resultsToRender) => {
+	getMarkers = () => {
 		let markers = [];
 		if (this.props.showMarkers) {
-			markers = resultsToRender.map((item) => {
+			markers = this.resultsToRender.map((item) => {
 				const markerProps = {
 					position: this.getPosition(item),
 				};
@@ -925,9 +984,7 @@ class ReactiveMap extends Component {
 					markerProps.icon = this.props.defaultPin;
 				}
 
-				return this.isMapBoxEngine()
-					? (
-						<MapBoxMarker
+						/*<MapBoxMarker
 							key={item._id}
 							coordinates={[markerProps.position.lng,markerProps.position.lat]}
 							anchor="center"
@@ -938,9 +995,16 @@ class ReactiveMap extends Component {
 								? this.props.customMarker(item, markerProps)
 								: <img src={`https://gkv.com/wp-content/uploads/leaflet-maps-marker-icons/map_marker-orange.png`} width="24px" />
 							}
-						</MapBoxMarker>
+						</MapBoxMarker>*/
+				return this.isMapBoxEngine()
+					? (
+						<Feature 
+							key={item._id}
+							coordinates={[markerProps.position.lng,markerProps.position.lat]}
+							onClick={() => this.openMarkerInfo(item._id)}
+						/>
 					)
-					:						(
+					: (
 						<GoogleMarker
 							key={item._id}
 							onClick={() => this.openMarkerInfo(item._id)}
@@ -978,18 +1042,8 @@ class ReactiveMap extends Component {
 
 
     renderMap = () => {
-		const results = parseHits(this.props.hits) || [];
-		const streamResults = parseHits(this.props.streamHits) || [];
-		let filteredResults = results.filter(item => !!item[this.props.dataField]);
-
-		if (streamResults.length) {
-			const ids = streamResults.map(item => item._id);
-			filteredResults = filteredResults.filter(item => !ids.includes(item._id));
-		}
-
-		const resultsToRender = this.addNoise([...streamResults, ...filteredResults]);
-		const markers = this.getMarkers(resultsToRender);
-		const popups = this.getPopup(resultsToRender);
+		const markers = this.getMarkers();
+		const popups = this.getPopup();
 
 		const style = {
 			width: '100%',
@@ -1009,18 +1063,134 @@ class ReactiveMap extends Component {
                                 height: "100vh",
                             }}
                             zoom={[this.state.zoom]}
-                            center={this.getCenter(resultsToRender)}
+                            center={this.getCenter(this.resultsToRender)}
                             ref={this.mapRef}
                             onZoomEnd={this.handleZoomChange}
                             onDragEnd={this.handleOnDragEnd}
                             onClick={this.handleOnClick}
+                            onData={
+                            	(map)=> {
+                            		map.on('click', 'clusters', (e) => {
+								        const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
+								        const clusterId = features[0].properties.cluster_id;
+
+								        map.getSource('earthquakes').getClusterExpansionZoom(clusterId, function (err, zoom) {
+								            if (err)
+								                return;
+
+								            map.easeTo({
+								                center: features[0].geometry.coordinates,
+								                zoom: zoom
+								            });
+								        });
+								    });
+
+								    map.on('click', 'unclustered-point', (e) => {
+								        const features = map.queryRenderedFeatures(e.point, { layers: ['unclustered-point'] });
+								        const itemId = features[0].properties.id;
+								        this.openMarkerInfo(itemId);
+								    });
+
+                            		map.on('mouseenter', 'clusters', () => { map.getCanvas().style.cursor = 'pointer'; });
+                            		map.on('mouseenter', 'unclustered-point', () => { map.getCanvas().style.cursor = 'pointer'; });
+								    map.on('mouseleave', 'clusters', () => { map.getCanvas().style.cursor = ''; });
+								    map.on('mouseleave', 'unclustered-point', ()=> { map.getCanvas().style.cursor = ''; });
+                            	}
+                            }
 						>
+							<Source 
+								id="earthquakes" 
+								geoJsonSource={
+									{
+										type: "geojson",
+										data: this.geoJsonFormated,
+								        cluster: true,
+								        clusterMaxZoom: 14, // Max zoom to cluster points on
+								        clusterRadius: 50 // Radius of each cluster when clustering points (defaults to 50)
+									}
+								}
+							/>
+							<Layer 
+								type="circle"
+								id="clusters"
+								sourceId="earthquakes"
+								filter={["has", "point_count"]}
+								paint={
+									{
+							            // Use step expressions (https://www.mapbox.com/mapbox-gl-js/style-spec/#expressions-step)
+							            // with three steps to implement three types of circles:
+							            //   * Blue, 20px circles when point count is less than 100
+							            //   * Yellow, 30px circles when point count is between 100 and 750
+							            //   * Pink, 40px circles when point count is greater than or equal to 750
+							            "circle-color": [
+							                "step",
+							                ["get", "point_count"],
+							                "#51bbd6",
+							                100,
+							                "#f1f075",
+							                750,
+							                "#f28cb1"
+							            ],
+							            "circle-radius": [
+							                "step",
+							                ["get", "point_count"],
+							                20,
+							                100,
+							                30,
+							                750,
+							                40
+							            ]
+							        }
+								}
+							/>
+							<Layer 
+								type="symbol"
+								id="cluster-count"
+								sourceId="earthquakes"
+								filter={["has", "point_count"]}
+								layout={
+									{
+							            "text-field": "{point_count_abbreviated}",
+							            "text-font": ["DIN Offc Pro Medium", "Arial Unicode MS Bold"],
+							            "text-size": 12
+							        }
+								}
+							/>
+							<Layer 
+								type="circle"
+								id="unclustered-point"
+								sourceId="earthquakes"
+								filter={["!", ["has", "point_count"]]}
+								paint={
+									{
+							            "circle-color": "#9C27B0",
+							            "circle-radius": 9,
+							            "circle-stroke-width": 2,
+							            "circle-stroke-color": "#fff"
+							        }
+								}
+							/>
+
 					 		{
 				                this.props.showMarkers && this.props.showMarkerClusters
 				                    ? (
-				                        <Cluster ClusterMarkerFactory={this.clusterMarker}>
+				                        /*<Cluster ClusterMarkerFactory={this.clusterMarker}>
 				                            {markers}
 				                        </Cluster>
+				                        */
+				                       /* <Layer
+									       	type="symbol"
+     										id="marker"
+     										layout={{ "icon-image": "custom-marker" }}
+     										images={[
+     											'custom-marker',
+     											this.props.markerIcon
+     										]}
+									      	
+									    >
+									    	{markers}
+									    </Layer>*/
+									    null
 				                    )
 				                    : markers
 				            }
@@ -1040,7 +1210,7 @@ class ReactiveMap extends Component {
 								}
 							}}
 							zoom={this.state.zoom}
-							center={this.getCenter(resultsToRender)}
+							center={this.getCenter(this.resultsToRender)}
 							{...this.props.mapProps}
 							onIdle={this.handleOnIdle}
 							onZoomChanged={this.handleZoomChange}
@@ -1116,6 +1286,16 @@ class ReactiveMap extends Component {
 
 		return (
 			<div style={{ ...style, ...this.props.style }} className={this.props.className}>
+				<Flex
+					labelPosition={this.props.sortOptions ? 'right' : 'left'}
+					className={getClassName(this.props.innerClass, 'resultsInfo')}
+				>
+					{
+						this.props.showResultStats
+							? this.renderResultStats()
+							: null
+					}
+				</Flex>
 				{
 					this.props.onAllData
 						? this.props.onAllData(
