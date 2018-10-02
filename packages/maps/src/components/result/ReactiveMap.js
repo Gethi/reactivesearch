@@ -41,8 +41,8 @@ const MidnightCommander = require('./addons/styles/MidnightCommander');
 const UnsaturatedBrowns = require('./addons/styles/UnsaturatedBrowns');
 
 const MAP_CENTER = {
-	lat: 46.311221,
-	lng: 4.140835,
+	lat: 46.943944366574016,
+	lng: 2.746625498027015,
 };
 
 const MAP_ENGINE = {
@@ -684,7 +684,19 @@ class ReactiveMap extends Component {
 				this.setGeoQuery(true);
 			});
 		}
+		if(Object.keys(this.state.openMarkers)) {
+			this.closeMarkerInfo();
+		}
 		if (this.props.mapProps.onDragEnd) this.props.mapProps.onDragEnd();
+	};
+
+	handleOnClick = () => {
+		let reason = 'click';
+		if(Object.keys(this.state.openMarkers)) {
+			this.closeMarkerInfo();
+			reason = 'clickAway';
+		}
+		if (this.props.mapProps.onClick) this.props.mapProps.onClick(reason);
 	};
 
 	handleZoomChange = () => {
@@ -778,7 +790,7 @@ class ReactiveMap extends Component {
 			additionalProps = {
 				position: this.getPosition(item),
 				defaultOptions: {
-					pixelOffset: new window.google.maps.Size(0, -30),
+					pixelOffset: window.google? new window.google.maps.Size(0, -30): null,
 				},
 			};
 		}
@@ -995,13 +1007,13 @@ class ReactiveMap extends Component {
                             style="mapbox://styles/mapbox/streets-v9"
                             containerStyle={{
                                 height: "100vh",
-                                width: "100vw"
                             }}
                             zoom={[this.state.zoom]}
                             center={this.getCenter(resultsToRender)}
                             ref={this.mapRef}
                             onZoomEnd={this.handleZoomChange}
                             onDragEnd={this.handleOnDragEnd}
+                            onClick={this.handleOnClick}
 						>
 					 		{
 				                this.props.showMarkers && this.props.showMarkerClusters
