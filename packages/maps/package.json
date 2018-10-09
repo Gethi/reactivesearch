@@ -1,6 +1,6 @@
 {
   "name": "reactivemaps-tmp-mapbox",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "React Components for building map UIs",
   "main": "lib/index.js",
   "files": [

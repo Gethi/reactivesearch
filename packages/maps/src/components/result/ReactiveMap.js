@@ -1059,15 +1059,14 @@ class ReactiveMap extends Component {
 
                         <MapBox
                             style="mapbox://styles/mapbox/streets-v9"
-                            containerStyle={{
-                                height: "100vh",
-                            }}
+                            containerStyle={this.props.containerStyle}
                             zoom={[this.state.zoom]}
                             center={this.getCenter(this.resultsToRender)}
                             ref={this.mapRef}
                             onZoomEnd={this.handleZoomChange}
                             onDragEnd={this.handleOnDragEnd}
                             onClick={this.handleOnClick}
+							onStyleLoad={this.props.onStyleLoad}
                             onData={
                             	(map)=> {
                             		map.on('click', 'clusters', (e) => {
