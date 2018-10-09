@@ -686,7 +686,7 @@ class ReactiveMap extends Component {
 		if (this.props.mapProps.onIdle) this.props.mapProps.onIdle();
 	};
 
-	handleOnDragEnd = () => {
+	handleOnDragEnd = (map, evt) => {
 		if (this.state.searchAsMove) {
 			this.setState({
 				preserveCenter: true,
@@ -698,6 +698,7 @@ class ReactiveMap extends Component {
 			this.closeMarkerInfo();
 		}
 		if (this.props.mapProps.onDragEnd) this.props.mapProps.onDragEnd();
+		if (this.props.onDragEnd) this.props.onDragEnd(map, evt);
 	};
 
 	handleOnClick = (map, evt) => {
@@ -709,7 +710,7 @@ class ReactiveMap extends Component {
 		if (this.props.mapProps.onClick) this.props.mapProps.onClick(reason);
 	};
 
-	handleZoomChange = () => {
+	handleZoomChange = (map, evt) => {
 		const mapObject = this.isMapBoxEngine() ? this.mapRef.current.state.map : this.mapRef;
 		const zoom = mapObject.getZoom();
 		if (this.state.searchAsMove) {
@@ -726,6 +727,8 @@ class ReactiveMap extends Component {
 		}
 
 		if (this.props.mapProps.onZoomChanged) this.props.mapProps.onZoomChanged();
+		if (this.props.onZoomEnd) this.props.onZoomEnd(map, evt);
+
 	};
 
 	toggleSearchAsMove = () => {
@@ -1067,13 +1070,14 @@ class ReactiveMap extends Component {
                             onDragEnd={this.handleOnDragEnd}
                             onClick={this.handleOnClick}
 							onStyleLoad={this.props.onStyleLoad}
+							{...this.props.mapBoxProps}
                             onData={
                             	(map)=> {
                             		map.on('click', 'clusters', (e) => {
 								        const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
 								        const clusterId = features[0].properties.cluster_id;
 
-								        map.getSource('earthquakes').getClusterExpansionZoom(clusterId, function (err, zoom) {
+								        map.getSource('popdata').getClusterExpansionZoom(clusterId, function (err, zoom) {
 								            if (err)
 								                return;
 
@@ -1098,7 +1102,7 @@ class ReactiveMap extends Component {
                             }
 						>
 							<Source 
-								id="earthquakes" 
+								id="popdata" 
 								geoJsonSource={
 									{
 										type: "geojson",
@@ -1112,7 +1116,7 @@ class ReactiveMap extends Component {
 							<Layer 
 								type="circle"
 								id="clusters"
-								sourceId="earthquakes"
+								sourceId="popdata"
 								filter={["has", "point_count"]}
 								paint={
 									{
@@ -1145,7 +1149,7 @@ class ReactiveMap extends Component {
 							<Layer 
 								type="symbol"
 								id="cluster-count"
-								sourceId="earthquakes"
+								sourceId="popdata"
 								filter={["has", "point_count"]}
 								layout={
 									{
@@ -1158,7 +1162,7 @@ class ReactiveMap extends Component {
 							<Layer 
 								type="circle"
 								id="unclustered-point"
-								sourceId="earthquakes"
+								sourceId="popdata"
 								filter={["!", ["has", "point_count"]]}
 								paint={
 									{
